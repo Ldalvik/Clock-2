@@ -1,5 +1,7 @@
 package medford.root.clock.color;
 
+import java.util.Locale;
+
 import medford.root.clock.bluetooth.BluetoothThread;
 
 public class Gradient {
@@ -40,10 +42,11 @@ public class Gradient {
     }
 
     public void sendStart(){
-        bluetooth.write("s:" + start_red + "," + start_green + "," + start_blue + "/");
+        bluetooth.write(String.format(Locale.US, "s:%1$d,%2$d,%3$d/", start_red, start_green, start_blue));
+
     }
 
     public void sendEnd(){
-        bluetooth.write("e:" + end_red + "," + end_green + "," + end_blue + "/");
+        bluetooth.write(String.format(Locale.US, "e:%1$d,%2$d,%3$d/", end_red, end_green, end_blue));
     }
 }
