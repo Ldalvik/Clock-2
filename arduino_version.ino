@@ -1,29 +1,30 @@
 #include <Adafruit_NeoPixel.h>
-int h = 9;
-int m = 30;
-#define PIXEL_PIN 10
-#define PIXEL_COUNT 330
-#define PIXEL_TYPE WS2812B
-#define ON 1
-#define OFF 0
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 #include <Arduino.h>
+#include <SPI.h>
 #include "Adafruit_BLE.h"
 #include "Adafruit_BluefruitLE_SPI.h"
 #include "Adafruit_BluefruitLE_UART.h"
 #include "BluefruitConfig.h"
-
-#if SOFTWARE_SERIAL_AVAILABLE
 #include <SoftwareSerial.h>
-#endif
+#include <Wire.h>
+#include "DS1307.h"
 
-String content;
-
+#define PIXEL_PIN 7
+#define PIXEL_COUNT 330
+#define PIXEL_TYPE WS2812B
+#define ON 1
+#define OFF 0
 #define FACTORYRESET_ENABLE         1
 #define MINIMUM_FIRMWARE_VERSION    "0.6.6"
 #define MODE_LED_BEHAVIOUR          "MODE"
 
-Adafruit_BluefruitLE_SPI ble(BLUEFRUIT_SPI_CS, BLUEFRUIT_SPI_IRQ, BLUEFRUIT_SPI_RST);
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
+SoftwareSerial bluefruitSS = SoftwareSerial(BLUEFRUIT_SWUART_TXD_PIN, BLUEFRUIT_SWUART_RXD_PIN);
+
+Adafruit_BluefruitLE_UART ble(bluefruitSS, BLUEFRUIT_UART_MODE_PIN,
+                              BLUEFRUIT_UART_CTS_PIN, BLUEFRUIT_UART_RTS_PIN);
+DS1307 rtc;
 
 void error(const __FlashStringHelper*err) {
   Serial.println(err);
@@ -36,7 +37,7 @@ int ALL_HOURS[14][2] = {
   {164, 175},  //two
   {122, 137},  //three
   {176, 189},  //four
-  {192, 205},  //five
+  {192, 203},  //five
   {239, 247},  //six
   {221, 238},  //seven
   {206, 220},  //eight
@@ -51,13 +52,13 @@ int ALL_MINUTES[12][2] = {
   {0, 0},      //
   {80, 90},    //five
   {30, 38},    //ten
-  {58, 78},    //quarter
+  {59, 78},    //quarter
   {41, 57},    //twenty
   {41, 57},    //twenty (five)
   {15, 29},    //half
   {41, 57},    //twenty (five)
   {41, 57},    //twenty
-  {58, 78},    //quarter
+  {59, 78},    //quarter
   {30, 40},    //ten
   {80, 90}     //five
 };
@@ -82,105 +83,52 @@ int end_red = 0;
 int end_green = 0;
 int end_blue = 0;
 
+int h = 5;
+int m = 10 / 5;
+String content;
+int repeat = 10;
 
 String readString;
-bool isPatternComplete = false;
 String mode = "solid";
-int wait = 20;
+long previousMillis = 0;
+//long interval = 1000;
 
 void setup() {
   Serial.begin(115200);
   strip.begin();
   resetNeo();
-
-  if ( !ble.begin(VERBOSE_MODE) )
-  {
+  _setTime();
+  rtc.begin();
+  if (!ble.begin(VERBOSE_MODE)) {
     error(F("Couldn't find Bluefruit, make sure it's in CoMmanD mode & check wiring?"));
   }
-  Serial.println( F("OK!") );
-
-  if ( FACTORYRESET_ENABLE )
-  {
-    Serial.println(F("Performing a factory reset: "));
-    if ( ! ble.factoryReset() ) {
-      error(F("Couldn't factory reset"));
-    }
-  }
-
   ble.echo(false);
-
   Serial.println("Requesting Bluefruit info:");
   ble.info();
-
-  Serial.println(F("Please use Adafruit Bluefruit LE app to connect in UART mode"));
-  Serial.println(F("Then Enter characters to send to Bluefruit"));
-  Serial.println();
-
   ble.verbose(false);
-
-  while (! ble.isConnected()) {
-    delay(500);
-  }
-
-  Serial.println(F("******************************"));
-
-  if ( ble.isVersionAtLeast(MINIMUM_FIRMWARE_VERSION) )
-  {
-    Serial.println(F("Change LED activity to " MODE_LED_BEHAVIOUR));
-    ble.sendCommandCheckOK("AT+HWModeLED=" MODE_LED_BEHAVIOUR);
-  }
-
-  Serial.println(F("Switching to DATA mode!") );
   ble.setMode(BLUEFRUIT_MODE_DATA);
-
-  Serial.println(F("******************************"));
 }
 
 void loop() {
-  char n, inputs[BUFSIZE + 1];
-  if (Serial.available()) {
-    n = Serial.readBytes(inputs, BUFSIZE);
-    inputs[n] = 0;
-    Serial.println(inputs);
-    ble.print(inputs);
-  }
-
   while (ble.available()) {
     char c = (char)ble.read();
     if (c == '/') {
-      check(content);
+      Serial.println(content);
+      colorToggle(content);
       content = "";
     } else {
       content.concat(c);
     }
   }
-  /*if (mode == "gradient") {
-    modeGradient();
-    }
-
-    if (mode == "rainbow") {
-    rainbow();
-    }
-
-    if (mode == "solid") {
-    solid();
-    }
-
-    if (mode == "gradient2") {
-    }
-
-    if (mode == "fade") {
-    solidFade();
-    }*/
-}
-
-void check(String data) {
-  Serial.println(data);
-  colorToggle(data);
-  _setTime();
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis > 1000 * 60) {
+    previousMillis = currentMillis;
+    _setTime();
+  }
 }
 
 int colorToggle(String command) {
+  //resetNeo();
   switch (command.charAt(0)) {
     case 'r': {
         setRed(command);
@@ -203,7 +151,12 @@ int colorToggle(String command) {
     case 'z': {
         resetNeo();
       } break;
+    case 't': {
+        setCurrentTime(command);
+        break;
+      }
   }
+
   if (mode == "gradient") {
     modeGradient();
   }
@@ -212,22 +165,36 @@ int colorToggle(String command) {
     rainbow();
   }
 
-  if (mode == "solid") {
-    solid();
+  if (mode == "rainbowall") {
+    rainbowAll();
   }
 
-  if (mode == "gradient2") {
+  if (mode == "solid") {
+    solid();
   }
 
   if (mode == "fade") {
     solidFade();
   }
+
+  if (mode == "fadein") {
+    fadeInOut();
+  }
 }
 
+void setCurrentTime(String data) {
+  data.remove(0, 2);
+  h = getValue(data, ',', 0).toInt();
+  m = getValue(data, ',', 1).toInt();
+  Serial.println(h);
+  Serial.println(m);
+  _setTime();
+}
 void _setTime() {
+  m /= 5;
   /* LOGIC FOR WORD "MINUTES" */
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  if (m == 0 || m == 3 || m == 6 || m == 9) { //If minute is 0, 15, 30, or 45           //
+  if (m == 0 || m == 3 || m == 6 || m == 9) {                     //If minute is 0, 15, 30, or 45           //
     SET_MINUTES(OFF);                                             //Turn off word "MINUTES"                 //
   } else {                                                        //If minute equals 1, 2, 4, 5, 7, or 8    //
     SET_MINUTES(ON);                                              //Turn on word "MINUTES"                  //
@@ -236,24 +203,24 @@ void _setTime() {
 
   /* LOGIC FOR CURRENT HOUR + WORDS "TO" AND "PAST" */
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  if (m == 0) {                                              //If minute is zero                       //
+  if (m == 0) {                                                   //If minute is zero                       //
     SET_TO(OFF);                                                  //Turn off word "TO"                      //
-  } else if (m <= 6) {                                       //If minute is less than or equal to 30   //
+  } else if (m <= 6) {                                            //If minute is less than or equal to 30   //
     SET_PAST(ON);                                                 //Turn on word "PAST"                     //
-    SET_HOUR(h);                                               //Set the current hour                    //
-  } else if (m > 6) {                                        //If minute is more than 30               //
+    SET_HOUR(h);                                                  //Set the current hour                    //
+  } else if (m > 6) {                                             //If minute is more than 30               //
     SET_TO(ON);                                                   //Turn on word "TO"                       //
-    SET_HOUR(h + 1);                                           //Set one hour ahead for "TO" logic       //
+    SET_HOUR(h + 1);                                              //Set one hour ahead for "TO" logic       //
   }                                                                                                         //
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   /* LOGIC FOR CURRENT HOUR + WORDS "TO" AND "PAST" */
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  if (m == 5 || m == 7) {                               //If minute is 25 or 35, turn on "FIVE"   //
-    SET_MINUTE(m);                                           //Set current minute                      //
+  if (m == 5 || m == 7) {                                         //If minute is 25 or 35, turn on "FIVE"   //
+    SET_MINUTE(m);                                                //Set current minute                      //
     SET_FIVE(ON);                                                 //Turn on word "FIVE"                     //
   } else {                                                        //If minute doesn't equal 25 or 35, set   //
-    SET_MINUTE(m);                                           //Set current minute                      //
+    SET_MINUTE(m);                                                //Set current minute                      //
     SET_FIVE(OFF);                                                //Turn off word "FIVE"                    //
   }                                                                                                         //
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -275,8 +242,8 @@ void show(int led, int red, int green, int blue) {
 }
 
 /* FUNCTIONS TO SET WORDS ON/OFF */
-void SET_MINUTES(int state) {
-  if (state) {
+void SET_MINUTES(int s) {
+  if (s) {
     MINUTES[0] = 92;
     MINUTES[1] = 113;
   } else {
@@ -284,8 +251,9 @@ void SET_MINUTES(int state) {
     MINUTES[1] = 0;
   }
 }
-void SET_TO(int state) {
-  if (state) {
+
+void SET_TO(int s) {
+  if (s) {
     TO_PAST[0] = 114;
     TO_PAST[1] = 121;
   } else {
@@ -293,8 +261,9 @@ void SET_TO(int state) {
     TO_PAST[1] = 0;
   }
 }
-void SET_PAST(int state) {
-  if (state) {
+
+void SET_PAST(int s) {
+  if (s) {
     TO_PAST[0] = 151;
     TO_PAST[1] = 162;
   } else {
@@ -302,8 +271,9 @@ void SET_PAST(int state) {
     TO_PAST[1] = 0;
   }
 }
-void SET_FIVE(int state) {
-  if (state) {
+
+void SET_FIVE(int s) {
+  if (s) {
     FIVE[0] = 80;
     FIVE[1] = 90;
   } else {
@@ -311,10 +281,12 @@ void SET_FIVE(int state) {
     FIVE[1] = 0;
   }
 }
+
 void SET_MINUTE(int m) {
   CURRENT_MINUTE[0] = ALL_MINUTES[m][0];
   CURRENT_MINUTE[1] = ALL_MINUTES[m][1];
 }
+
 void SET_HOUR(int h) {
   CURRENT_HOUR[0] = ALL_HOURS[h][0];
   CURRENT_HOUR[1] = ALL_HOURS[h][1];
@@ -324,10 +296,12 @@ void setRed(String command) {
   command.remove(0, 2);
   r = command.toInt();
 }
+
 void setGreen(String command) {
   command.remove(0, 2);
   g = command.toInt();
 }
+
 void setBlue(String command) {
   command.remove(0, 2);
   b = command.toInt();
@@ -340,6 +314,7 @@ void setStartGradient(String command) {
   start_green = getValue(command, ',', 1).toInt();
   start_blue = getValue(command, ',', 2).toInt();
 }
+
 void setEndGradient(String command) {
   command.remove(0, 2);
   end_red = getValue(command, ',', 0).toInt();
@@ -391,62 +366,6 @@ void modeGradient() {
   strip.show();
 }
 
-void red_green() {
-  start_red = 255;
-  for (int i = 0; i < 255; i++) {
-    start_red--;
-    int newRed;
-    int newGreen;
-    for (int led = 0; led < 330; led++) {
-      newRed = abs(start_red - (led * 0.77));
-      newGreen = 255 - newRed;
-      show(led, newRed, newGreen, 0);
-    }
-    strip.show();
-  }
-
-  start_green = 255;
-  for (int i = 0; i < 255; i++) {
-    start_green--;
-    int newRed;
-    int newGreen;
-    for (int led = 0; led < 330; led++) {
-      newGreen = abs(start_green - (led * 0.77));
-      newRed = 255 - newGreen;
-      show(led, newRed, newGreen, 0);
-    }
-    strip.show();
-  }
-}
-
-void red_blue() {
-  start_red = 255;
-  for (int i = 0; i < 255; i++) {
-    start_red--;
-    int newRed;
-    int newGreen;
-    for (int led = 0; led < 330; led++) {
-      newRed = abs(start_red - (led * 0.77));
-      newGreen = 255 - newRed;
-      show(led, newRed, newGreen, 0);
-    }
-    strip.show();
-  }
-
-  start_blue = 255;
-  for (int i = 0; i < 255; i++) {
-    start_green--;
-    int newRed;
-    int newBlue;
-    for (int led = 0; led < 330; led++) {
-      newBlue = abs(start_blue - (led * 0.77));
-      newRed = 255 - newBlue;
-      show(led, newRed, 0, newBlue);
-    }
-    strip.show();
-  }
-}
-
 void solidFade() {
   int newRed = 255;
   int newGreen = 0;
@@ -470,17 +389,23 @@ void solidFade() {
 
 void solid() {
   for (int led = 0; led < PIXEL_COUNT; led++) {
-    //strip.setPixelColor(led, r, g, b);
     show(led, r, g, b);
+  }
+  strip.show();
+}
+
+void all() {
+  for (int led = 0; led < PIXEL_COUNT; led++) {
+    strip.setPixelColor(led, r, g, b);
   }
   strip.show();
 }
 
 void rainbow() {
   uint16_t led, j;
-  for (j = 0; j < 256 * 5; j++) {
+  for (j = 0; j < 256 * 10; j++) {
     for (led = 0; led < strip.numPixels(); led++) {
-      if (led >= IT[0] && led <= IT[1] ||                         //IT
+      if (led >= IT[0] && led <= IT[1] ||                          //IT
           led >= IS[0] && led <= IS[1] ||                          //IS
           led >= CURRENT_MINUTE[0] && led <= CURRENT_MINUTE[1] ||  //FIVE/TEN/QUARTER/TWENTY/HALF
           led >= FIVE[0] && led <= FIVE[1] ||                      //FIVE
@@ -492,6 +417,16 @@ void rainbow() {
       } else {
         strip.setPixelColor(led, 0, 0, 0);
       }
+    }
+    strip.show();
+  }
+}
+
+void rainbowAll() {
+  uint16_t led, j;
+  for (j = 0; j < 256 * 10; j++) {
+    for (led = 0; led < strip.numPixels(); led++) {
+      strip.setPixelColor(led, Wheel(((led * 256 / PIXEL_COUNT) + j) & 255));
     }
     strip.show();
   }
@@ -510,14 +445,27 @@ uint32_t Wheel(byte WheelPos) {
   return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
 }
 
-uint32_t Wheel2(byte WheelPos) {
-  WheelPos = 255 - WheelPos;
-  if (WheelPos < 127) {
-    return strip.Color(255 - WheelPos * 2, 0, WheelPos * 2);
-  }
-  if (WheelPos > 127) {
-    WheelPos -= 127;
-    return strip.Color(WheelPos * 2, 0, 255 - WheelPos * 2);
+void fadeInOut() {
+  float red, green, blue;
+  for (int i = 0; i < repeat; i++) {
+    for (int k = 0; k < 256; k = k + 1) {
+      red = (k / 256.0) * r;
+      green = (k / 256.0) * g;
+      blue = (k / 256.0) * b;
+      for (int led = 0; led < 330; led++) {
+        show(led, red, green, blue);
+      }
+      strip.show();
+    }
+    for (int k = 255; k >= 0; k = k - 2) {
+      red = (k / 256.0) * r;
+      green = (k / 256.0) * g;
+      blue = (k / 256.0) * b;
+      for (int led = 0; led < 330; led++) {
+        show(led, red, green, blue);
+      }
+      strip.show();
+    }
   }
 }
 
@@ -526,6 +474,11 @@ void resetNeo() {
     strip.setPixelColor(i, 0, 0, 0);
   }
   strip.show();
+}
+
+void setRTC(int h, int m, int s) {
+  rtc.fillByHMS(h, m, s);
+  rtc.setTime();
 }
 
 /* OTHER */
