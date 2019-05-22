@@ -19,11 +19,9 @@
 #define MODE_LED_BEHAVIOUR          "MODE"
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
-
 SoftwareSerial bluefruitSS = SoftwareSerial(BLUEFRUIT_SWUART_TXD_PIN, BLUEFRUIT_SWUART_RXD_PIN);
+Adafruit_BluefruitLE_UART ble(bluefruitSS, BLUEFRUIT_UART_MODE_PIN, BLUEFRUIT_UART_CTS_PIN, BLUEFRUIT_UART_RTS_PIN);
 
-Adafruit_BluefruitLE_UART ble(bluefruitSS, BLUEFRUIT_UART_MODE_PIN,
-                              BLUEFRUIT_UART_CTS_PIN, BLUEFRUIT_UART_RTS_PIN);
 DS1307 rtc;
 
 void error(const __FlashStringHelper*err) {
@@ -91,7 +89,6 @@ int repeat = 10;
 String readString;
 String mode = "solid";
 long previousMillis = 0;
-//long interval = 1000;
 
 void setup() {
   Serial.begin(115200);
@@ -123,12 +120,16 @@ void loop() {
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis > 1000 * 60) {
     previousMillis = currentMillis;
+    h = rtc.hour;
+    m = rtc.minute;
+    if(h > 12){
+      h-=12;
+    }
     _setTime();
   }
 }
 
 int colorToggle(String command) {
-  //resetNeo();
   switch (command.charAt(0)) {
     case 'r': {
         setRed(command);
@@ -188,21 +189,19 @@ void setCurrentTime(String data) {
   m = getValue(data, ',', 1).toInt();
   Serial.println(h);
   Serial.println(m);
+  clock.fillByHMS(h, m, 0);
+  clock.setTime();
   _setTime();
 }
+
 void _setTime() {
   m /= 5;
-  /* LOGIC FOR WORD "MINUTES" */
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
   if (m == 0 || m == 3 || m == 6 || m == 9) {                     //If minute is 0, 15, 30, or 45           //
     SET_MINUTES(OFF);                                             //Turn off word "MINUTES"                 //
   } else {                                                        //If minute equals 1, 2, 4, 5, 7, or 8    //
     SET_MINUTES(ON);                                              //Turn on word "MINUTES"                  //
-  }                                                                                                         //
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-  /* LOGIC FOR CURRENT HOUR + WORDS "TO" AND "PAST" */
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  }
   if (m == 0) {                                                   //If minute is zero                       //
     SET_TO(OFF);                                                  //Turn off word "TO"                      //
   } else if (m <= 6) {                                            //If minute is less than or equal to 30   //
@@ -212,10 +211,7 @@ void _setTime() {
     SET_TO(ON);                                                   //Turn on word "TO"                       //
     SET_HOUR(h + 1);                                              //Set one hour ahead for "TO" logic       //
   }                                                                                                         //
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  /* LOGIC FOR CURRENT HOUR + WORDS "TO" AND "PAST" */
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
   if (m == 5 || m == 7) {                                         //If minute is 25 or 35, turn on "FIVE"   //
     SET_MINUTE(m);                                                //Set current minute                      //
     SET_FIVE(ON);                                                 //Turn on word "FIVE"                     //
@@ -223,7 +219,6 @@ void _setTime() {
     SET_MINUTE(m);                                                //Set current minute                      //
     SET_FIVE(OFF);                                                //Turn off word "FIVE"                    //
   }                                                                                                         //
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 }
 
 void show(int led, int red, int green, int blue) {
@@ -241,7 +236,6 @@ void show(int led, int red, int green, int blue) {
   }
 }
 
-/* FUNCTIONS TO SET WORDS ON/OFF */
 void SET_MINUTES(int s) {
   if (s) {
     MINUTES[0] = 92;
