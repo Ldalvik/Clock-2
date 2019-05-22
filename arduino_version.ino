@@ -24,11 +24,6 @@ Adafruit_BluefruitLE_UART ble(bluefruitSS, BLUEFRUIT_UART_MODE_PIN, BLUEFRUIT_UA
 
 DS1307 rtc;
 
-void error(const __FlashStringHelper*err) {
-  Serial.println(err);
-  while (1);
-}
-
 int ALL_HOURS[14][2] = {
   {0, 0},      //
   {138, 150},  //one
@@ -84,18 +79,15 @@ int end_blue = 0;
 int h = 5;
 int m = 10 / 5;
 String content;
-int repeat = 10;
-
-String readString;
 String mode = "solid";
 long previousMillis = 0;
 
 void setup() {
   Serial.begin(115200);
   strip.begin();
+  rtc.begin();
   resetNeo();
   _setTime();
-  rtc.begin();
   if (!ble.begin(VERBOSE_MODE)) {
     error(F("Couldn't find Bluefruit, make sure it's in CoMmanD mode & check wiring?"));
   }
@@ -122,8 +114,8 @@ void loop() {
     previousMillis = currentMillis;
     h = rtc.hour;
     m = rtc.minute;
-    if(h > 12){
-      h-=12;
+    if (h > 12) {
+      h -= 12;
     }
     _setTime();
   }
@@ -202,6 +194,7 @@ void _setTime() {
   } else {                                                        //If minute equals 1, 2, 4, 5, 7, or 8    //
     SET_MINUTES(ON);                                              //Turn on word "MINUTES"                  //
   }
+  
   if (m == 0) {                                                   //If minute is zero                       //
     SET_TO(OFF);                                                  //Turn off word "TO"                      //
   } else if (m <= 6) {                                            //If minute is less than or equal to 30   //
@@ -489,4 +482,9 @@ String getValue(String data, char separator, int index) {
     }
   }
   return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
+void error(const __FlashStringHelper*err) {
+  Serial.println(err);
+  while (1);
 }
